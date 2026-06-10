@@ -241,3 +241,23 @@ Yes — returns Winter with detected_season: False (caller-specified, not auto-d
 "What's a good beginner plant?"  -> calls get_plant_list({}) -> recommends Pothos (easy).
 Both route correctly; neither triggers lookup_plant. Confirmed in the terminal trace.
 ```
+
+---
+
+## Helper: `detect_plants()` — Conversation Memory (Optional Challenge)
+
+Not an LLM-callable tool — a helper the agent loop uses for lightweight memory.
+
+**Input:** `text: str`  **Output:** `list[str]` of display names mentioned in the text.
+
+- Case-insensitive substring match of each plant's display name + aliases against the text.
+- `run_agent` scans all prior user messages, collects mentioned plants, and injects a
+  `system` note ("plants this user has mentioned owning: ...") so the agent can connect a
+  later general question ("how do I know when to water it?") back to a plant the user owns.
+- **Limitation:** substring matching can over-match (e.g. "aloe" inside another word). For
+  15 plants with distinctive names this is acceptable; a tokenized/word-boundary match would
+  be the next refinement.
+```
+Test: history mentions pothos, then "How do I know when to water it?" -> agent resolves
+"it" to pothos via the memory note and looks it up. Confirmed.
+```

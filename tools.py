@@ -97,6 +97,25 @@ def get_plant_list() -> dict:
     return {"count": len(plants), "plants": plants}
 
 
+def detect_plants(text: str) -> list:
+    """
+    Detect which known plants (if any) are mentioned in a piece of text.
+
+    Used by the agent's lightweight conversation memory: it scans prior user
+    messages so the agent can proactively connect new questions to plants the
+    user has already mentioned. Matches case-insensitively against each plant's
+    display name and aliases. Returns a list of display names (no duplicates).
+    """
+    lowered = text.lower()
+    found = []
+    for plant in _plant_db.values():
+        names = [plant["display_name"]] + plant["aliases"]
+        if any(name.lower() in lowered for name in names):
+            if plant["display_name"] not in found:
+                found.append(plant["display_name"])
+    return found
+
+
 def get_seasonal_conditions(season: str | None = None) -> dict:
     """
     Return current seasonal care context for houseplants.

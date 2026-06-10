@@ -1,7 +1,7 @@
 import json
 from groq import Groq, BadRequestError
 from config import GROQ_API_KEY, LLM_MODEL, MAX_TOOL_ROUNDS
-from tools import lookup_plant, get_seasonal_conditions, get_plant_list
+from tools import lookup_plant, get_seasonal_conditions, get_plant_list, detect_plants
 
 _client = Groq(api_key=GROQ_API_KEY)
 
@@ -197,6 +197,28 @@ def run_agent(user_message: str, history: list) -> str:
             messages.append({"role": "user", "content": user_msg})
             if assistant_msg:
                 messages.append({"role": "assistant", "content": assistant_msg})
+
+    # Lightweight conversation memory: scan everything the user has said (prior
+    # turns + the new message) for known plants, and tell the agent about them so
+    # it can proactively connect a general question back to a plant they own.
+    user_said = [m["content"] for m in messages if m.get("role") == "user"]
+    user_said.append(user_message)
+    remembered = []
+    for text in user_said:
+        for name in detect_plants(text):
+            if name not in remembered:
+                remembered.append(name)
+    if remembered:
+        messages.append({
+            "role": "system",
+            "content": (
+                "Conversation memory — plants this user has mentioned owning: "
+                + ", ".join(remembered)
+                + ". If a later question is general (e.g. about watering), connect "
+                "it back to one of these plants when relevant (e.g. 'since you "
+                "mentioned your pothos...')."
+            ),
+        })
 
     messages.append({"role": "user", "content": user_message})
 
