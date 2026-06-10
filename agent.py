@@ -1,7 +1,7 @@
 import json
 from groq import Groq, BadRequestError
 from config import GROQ_API_KEY, LLM_MODEL, MAX_TOOL_ROUNDS
-from tools import lookup_plant, get_seasonal_conditions
+from tools import lookup_plant, get_seasonal_conditions, get_plant_list
 
 _client = Groq(api_key=GROQ_API_KEY)
 
@@ -88,6 +88,25 @@ TOOL_DEFINITIONS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_plant_list",
+            "description": (
+                "List every houseplant in the database with its name and "
+                "difficulty level (easy, moderate, hard). Takes no arguments. "
+                "Use this when the user asks what plants you know about, asks for "
+                "a recommendation by difficulty (e.g. a good beginner plant), or "
+                "wants to browse available plants — NOT when they ask about one "
+                "specific plant by name (use lookup_plant for that)."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        },
+    },
 ]
 
 # ──────────────────────────────────────────────
@@ -123,6 +142,8 @@ def dispatch_tool(tool_name: str, tool_args: dict) -> str:
         result = lookup_plant(tool_args["plant_name"])
     elif tool_name == "get_seasonal_conditions":
         result = get_seasonal_conditions(tool_args.get("season"))
+    elif tool_name == "get_plant_list":
+        result = get_plant_list()
     else:
         result = {"error": f"Unknown tool: {tool_name}"}
     print(f"  ← Result: {json.dumps(result)[:120]}{'...' if len(json.dumps(result)) > 120 else ''}")

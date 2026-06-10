@@ -210,3 +210,34 @@ Returned season: Summer (detected_season: True)
 ```
 Yes — returns Winter with detected_season: False (caller-specified, not auto-detected).
 ```
+
+---
+
+## Function 3: `get_plant_list()` — Optional Challenge
+
+### Input / Output Contract
+
+**Inputs:** none.
+
+**Output:** `dict`
+```python
+{"count": <int>, "plants": [{"name": <display_name>, "difficulty": <level>}, ...]}
+```
+
+### Design Decisions
+
+- **Why no arguments:** this tool answers "what do you know?" / "recommend by difficulty"
+  questions, which don't depend on user input. The tool definition's `properties` is `{}`.
+- **Why only name + difficulty (not the full plant dict):** the LLM only needs enough to
+  list options or pick by difficulty. Returning every field would bloat the context for no
+  benefit — `lookup_plant` is the tool for full detail on one plant.
+- **Tool description disambiguation:** the description explicitly says to use `lookup_plant`
+  (not this) for a single named plant, so the LLM routes "tell me about my pothos" to the
+  right tool and "what plants do you know?" here.
+
+### Implementation Notes
+```
+"What plants do you know about?" -> calls get_plant_list({}) -> lists all 15.
+"What's a good beginner plant?"  -> calls get_plant_list({}) -> recommends Pothos (easy).
+Both route correctly; neither triggers lookup_plant. Confirmed in the terminal trace.
+```

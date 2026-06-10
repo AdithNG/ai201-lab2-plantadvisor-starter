@@ -80,6 +80,23 @@ def lookup_plant(plant_name: str) -> dict:
     }
 
 
+def get_plant_list() -> dict:
+    """
+    Return every plant in the database with its display name and difficulty.
+
+    Use this to answer questions about what plants the advisor knows, or to
+    recommend plants by difficulty (e.g. "what's a good beginner plant?").
+
+    Returns:
+      {"count": <int>, "plants": [{"name": <str>, "difficulty": <str>}, ...]}
+    """
+    plants = [
+        {"name": plant["display_name"], "difficulty": plant["difficulty"]}
+        for plant in _plant_db.values()
+    ]
+    return {"count": len(plants), "plants": plants}
+
+
 def get_seasonal_conditions(season: str | None = None) -> dict:
     """
     Return current seasonal care context for houseplants.
