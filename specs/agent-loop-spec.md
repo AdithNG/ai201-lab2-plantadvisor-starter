@@ -122,7 +122,19 @@ for tool_call in assistant_message.tool_calls:
 *The loop should stop when: (a) the LLM returns a response with no tool calls, OR (b) the MAX_TOOL_ROUNDS limit is reached. Describe how you will detect each condition and what you will return in each case.*
 
 ```
-[your answer here]
+The loop is a `for _ in range(MAX_TOOL_ROUNDS):` — the range cap is the safety
+valve, so the loop can never spin forever even if a tool keeps returning empty
+results.
+
+(a) No tool calls: each iteration checks `assistant_message.tool_calls`. If it's
+    falsy, the LLM is done — return `assistant_message.content`. Guard against a
+    None/empty content by returning a friendly fallback string instead of "".
+
+(b) MAX_TOOL_ROUNDS reached: if the for-loop runs to completion (the LLM was
+    still requesting tools on the last allowed round), make ONE final call with
+    tool_choice="none" to force a text answer from the context gathered so far,
+    and return that. This degrades gracefully instead of crashing or returning
+    a half-finished tool-call message. Also guarded with a fallback string.
 ```
 
 ---
@@ -132,7 +144,12 @@ for tool_call in assistant_message.tool_calls:
 *Once the loop exits because there are no more tool calls, how do you extract the text content from the response object? What field holds the string you should return?*
 
 ```
-[your answer here]
+The text is at: response.choices[0].message.content
+
+choices is a list (the API can return multiple completions); index 0 is the one
+we want. Its .message is the assistant message object, and .content is the final
+answer string. NOT .tool_calls and NOT the raw message object — returning either
+of those is the classic "empty string / wrong content" bug.
 ```
 
 ---
@@ -144,20 +161,42 @@ for tool_call in assistant_message.tool_calls:
 **Trace of a working agent turn (what tools were called and in what order):**
 
 ```
-Query: "How should I care for my calathea?"
-Round 1 tool call: [tool name, args]
-Round 2 tool call: [tool name, args] (if any)
-Final response: [brief description]
+Query: "How should I water my monstera this time of year?"
+Round 1 tool call: lookup_plant({'plant_name': 'monstera'})  -> found: True
+Round 1 tool call: get_seasonal_conditions({})               -> Summer, detected_season: True
+Round 2: no tool calls -> LLM returns final answer
+Final response: Cites the monstera's "water when top 2 inches dry" guidance and
+connects it to summer (water more frequently, watch for root rot, keep humidity
+high). Both tools fired in one round; the second round produced the text answer.
 ```
 
 **What happens when you ask about a plant that isn't in the database?**
 
 ```
-[describe the behavior you observed]
+Query: "How do I care for my string of pearls?"
+lookup_plant returns found: False with the not-found message. The LLM reads that
+message and degrades gracefully: it acknowledges the plant isn't in the database,
+offers general succulent care guidance, and points to a reliable source — without
+inventing specific watering/light figures. get_seasonal_conditions is not called.
 ```
 
 **One thing about the tool call API that surprised you:**
 
 ```
-[your answer here]
+Two things the happy-path spec didn't anticipate, both found by running it:
+
+1. For a no-argument tool call, the model doesn't always send "{}" — it sent the
+   JSON string "null", which json.loads() turns into None, breaking dispatch_tool
+   (which expects a dict). The loop normalizes empty/null/non-dict args to {}.
+
+2. llama-3.3-70b on Groq INTERMITTENTLY emits a malformed tool call (e.g.
+   "<function=lookup_plant({...})</function>") that the server rejects with a 400
+   'tool_use_failed'. Same query, same input — works most times, fails some. The
+   fix is to retry the request (it's transient), wrapped in _create_completion().
+
+Also: Gradio's ChatInterface(type="messages") passes history as {"role","content"}
+dicts, NOT the [user, assistant] pairs the spec assumed — the replay handles both.
+And the dispatch_tool "→" arrow crashes Windows cp1252 stdout, so the entry point
+reconfigures stdout to UTF-8. The whole loop is wrapped in try/except returning a
+friendly fallback, honoring the "never return empty" output contract.
 ```

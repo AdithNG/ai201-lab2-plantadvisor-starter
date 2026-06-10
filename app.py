@@ -1,5 +1,12 @@
 import json
 import os
+import sys
+
+# dispatch_tool() prints a "→ Tool call" arrow; Windows' default cp1252 console
+# can't encode it. Force UTF-8 so the trace prints instead of crashing the turn.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
 import gradio as gr
 from config import DATA_PATH
 from agent import run_agent
@@ -34,7 +41,15 @@ def chat(message: str, history: list) -> str:
 # UI
 # ──────────────────────────────────────────────
 
-with gr.Blocks(title="Plant Advisor") as demo:
+with gr.Blocks(
+    title="Plant Advisor",
+    theme=gr.themes.Default(
+        primary_hue="green",
+        secondary_hue="emerald",
+        neutral_hue="stone",
+        font=[gr.themes.GoogleFont("Inter"), "sans-serif"],
+    ),
+) as demo:
 
     gr.Markdown(
         """
@@ -79,11 +94,4 @@ with gr.Blocks(title="Plant Advisor") as demo:
             )
 
 if __name__ == "__main__":
-    demo.launch(
-        theme=gr.themes.Default(
-            primary_hue="green",
-            secondary_hue="emerald",
-            neutral_hue="stone",
-            font=[gr.themes.GoogleFont("Inter"), "sans-serif"],
-        )
-    )
+    demo.launch()

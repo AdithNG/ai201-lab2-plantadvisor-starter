@@ -1,9 +1,39 @@
 import json
-from groq import Groq
+from groq import Groq, BadRequestError
 from config import GROQ_API_KEY, LLM_MODEL, MAX_TOOL_ROUNDS
 from tools import lookup_plant, get_seasonal_conditions
 
 _client = Groq(api_key=GROQ_API_KEY)
+
+# llama-3.3 on Groq occasionally emits a malformed tool call that the server
+# can't parse (BadRequestError, code 'tool_use_failed'). It's transient, so we
+# retry the same request a few times before giving up.
+_MAX_API_RETRIES = 3
+
+
+def _create_completion(messages: list, use_tools: bool):
+    """Call the Groq API, retrying the transient 'tool_use_failed' 400 error."""
+    last_error = None
+    for _ in range(_MAX_API_RETRIES):
+        try:
+            if use_tools:
+                return _client.chat.completions.create(
+                    model=LLM_MODEL,
+                    messages=messages,
+                    tools=TOOL_DEFINITIONS,
+                    tool_choice="auto",
+                )
+            return _client.chat.completions.create(
+                model=LLM_MODEL,
+                messages=messages,
+                tool_choice="none",
+            )
+        except BadRequestError as error:
+            if "tool_use_failed" in str(error):
+                last_error = error
+                continue  # transient — retry
+            raise
+    raise last_error
 
 # ──────────────────────────────────────────────
 # Tool definitions
@@ -128,4 +158,70 @@ def run_agent(user_message: str, history: list) -> str:
 
     Before writing code, complete specs/agent-loop-spec.md.
     """
-    return "🌱 Agent not yet implemented. Complete Milestone 2 to activate the Plant Advisor."
+    # 1. Build the messages list: system prompt + replayed history + new message.
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+
+    # Gradio's ChatInterface(type="messages") passes history as a list of
+    # {"role", "content"} dicts; the older API passes [user, assistant] pairs.
+    # Handle both so the agent works regardless of how it's wired up.
+    for item in history:
+        if isinstance(item, dict):
+            if item.get("role") in ("user", "assistant") and item.get("content"):
+                messages.append({"role": item["role"], "content": item["content"]})
+        else:
+            user_msg, assistant_msg = item
+            messages.append({"role": "user", "content": user_msg})
+            if assistant_msg:
+                messages.append({"role": "assistant", "content": assistant_msg})
+
+    messages.append({"role": "user", "content": user_message})
+
+    try:
+        # 2. Tool-calling loop, capped by MAX_TOOL_ROUNDS to prevent runaway loops.
+        for _ in range(MAX_TOOL_ROUNDS):
+            response = _create_completion(messages, use_tools=True)
+            assistant_message = response.choices[0].message
+
+            # Exit condition (a): no tool calls means the LLM has a final answer.
+            if not assistant_message.tool_calls:
+                return assistant_message.content or (
+                    "Sorry, I wasn't able to put together a response. "
+                    "Could you rephrase your plant question?"
+                )
+
+            # Assistant message (with tool_calls) MUST be appended before results,
+            # so each tool result's tool_call_id can be matched to its request.
+            messages.append(assistant_message)
+
+            for tool_call in assistant_message.tool_calls:
+                tool_name = tool_call.function.name
+                # Arguments arrive as a JSON string. For a no-arg call the model
+                # may send "", "null", or "{}" — normalize all of these to an
+                # empty dict so dispatch_tool always receives a dict to .get() from.
+                raw_args = tool_call.function.arguments
+                tool_args = json.loads(raw_args) if raw_args else {}
+                if not isinstance(tool_args, dict):
+                    tool_args = {}
+                tool_result = dispatch_tool(tool_name, tool_args)
+
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "content": tool_result,
+                })
+
+        # Exit condition (b): hit MAX_TOOL_ROUNDS. Ask the model once more for a
+        # final answer with the context gathered, forbidding further tool calls.
+        final = _create_completion(messages, use_tools=False)
+        return final.choices[0].message.content or (
+            "I gathered some information but couldn't finish forming an answer. "
+            "Please try asking your question again."
+        )
+    except Exception as error:
+        # Output contract: never return empty. Surface a friendly message and
+        # log the real error to the terminal for debugging.
+        print(f"  ! Agent error: {error}")
+        return (
+            "Sorry — I ran into a problem while answering that. "
+            "Please try asking again in a moment."
+        )
