@@ -200,3 +200,20 @@ And the dispatch_tool "→" arrow crashes Windows cp1252 stdout, so the entry po
 reconfigures stdout to UTF-8. The whole loop is wrapped in try/except returning a
 friendly fallback, honoring the "never return empty" output contract.
 ```
+
+**Stress test — hitting MAX_TOOL_ROUNDS (Optional Challenge):**
+
+```
+Key finding: the model BATCHES tool calls. A "compare 5 plants + the season"
+question produced all 6 tool calls in a SINGLE assistant message = 1 round, not
+6. MAX_TOOL_ROUNDS counts ROUNDS (LLM<->tool exchanges), not individual calls,
+so hitting the cap of 5 requires 5 *sequential dependent* lookups — which normal
+plant questions never need. The cap is a safety valve against a stuck loop (a
+tool that keeps returning empty and an LLM that keeps retrying), not something
+real queries trip.
+
+Verified the exit path by forcing MAX_TOOL_ROUNDS=1: after the round, the loop
+makes one final tool_choice="none" call and returns a complete, sensible answer
+— graceful degradation, not a crash or empty string. That confirms the limit
+behaves correctly when reached.
+```
